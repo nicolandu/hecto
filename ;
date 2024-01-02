@@ -1,6 +1,7 @@
 use crate::Position;
 use std::io::{self, Write};
 
+use termion::color::Color;
 use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::{IntoRawMode, RawTerminal};
@@ -11,7 +12,8 @@ pub struct Size {
     pub height: u16,
 }
 
-pub struct RgbColor(pub u8, pub u8, pub u8);
+#[derive(Clone, Copy)]
+pub struct Color(u8, u8, u8);
 
 pub struct Terminal {
     _stdout: RawTerminal<io::Stdout>,
@@ -34,52 +36,29 @@ impl Terminal {
         self.size
     }
 
-    pub fn clear_screen() {
+    pub fn clear_screen(&self) {
         print!("{}", termion::clear::All);
     }
 
-    pub fn clear_current_line() {
+    pub fn clear_current_line(&self) {
         print!("{}", termion::clear::CurrentLine);
     }
 
     /// 0-based coords
-    pub fn cursor_position(pos: Position) {
+    pub fn cursor_position(&self, p: Position) {
         print!(
             "{}",
-            termion::cursor::Goto(
-                pos.x.saturating_add(1) as u16,
-                pos.y.saturating_add(1) as u16
-            )
+            termion::cursor::Goto(p.x.saturating_add(1) as u16, p.y.saturating_add(1) as u16)
         );
     }
 
-    pub fn set_bg_color(color: RgbColor) {
-        print!(
-            "{}",
-            termion::color::Bg(termion::color::Rgb(color.0, color.1, color.2))
-        );
-    }
+    pub fn set_bg_color(color: Color)
 
-    pub fn reset_bg_color() {
-        print!("{}", termion::color::Bg(termion::color::Reset));
-    }
-
-    pub fn set_fg_color(color: RgbColor) {
-        print!(
-            "{}",
-            termion::color::Fg(termion::color::Rgb(color.0, color.1, color.2))
-        );
-    }
-
-    pub fn reset_fg_color() {
-        print!("{}", termion::color::Fg(termion::color::Reset));
-    }
-
-    pub fn flush() -> Result<(), io::Error> {
+    pub fn flush(&self) -> Result<(), io::Error> {
         io::stdout().flush()
     }
 
-    pub fn read_key() -> Result<Key, io::Error> {
+    pub fn read_key(&self) -> Result<Key, io::Error> {
         loop {
             if let Some(key) = io::stdin().lock().keys().next() {
                 return key;

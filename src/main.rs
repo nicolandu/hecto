@@ -15,18 +15,13 @@ use std::{env, path::Path};
 
 fn main() -> Result<()> {
     let mut editor = match env::args().nth(1) {
-        Some(p) => {
-            let path = Path::new(&p);
-            if !path.is_file() {
-                panic!("Not a file");
-            }
-            Editor::from_file_path(path)?
-        }
-        None => Editor::default()?,
-    };
+        Some(p) => Editor::from_file_path(Path::new(&p)),
+        None => Editor::default(),
+    }?;
 
     if let Err(e) = editor.run() {
-        panic!("{}", e);
+        eprintln!("{}", e);
+        return Err(e);
     }
     Ok(())
 }
