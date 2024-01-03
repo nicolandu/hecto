@@ -3,11 +3,13 @@ use crate::{terminal, Document, Row, Terminal};
 use anyhow::Result;
 use std::cmp;
 use std::io;
-use std::path::Path;
+use std::path::PathBuf;
 use termion::event::Key;
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const HELP_MESSAGE: &str =
+    "<C-Q>: quit; <C-S>: save; <C-W>: save as; <F1>: Display this help message";
 
 const STATUS_BG_COLOR: terminal::RgbColor = terminal::RgbColor(128, 128, 255);
 
@@ -32,11 +34,11 @@ impl Editor {
         Self::common_init(Document::default(), "".into())
     }
 
-    pub fn from_file_path(path: &Path) -> Result<Self, std::io::Error> {
-        let doc = Document::open(path);
+    pub fn from_file_path(path: PathBuf) -> Result<Self, std::io::Error> {
+        let doc = Document::open(path.clone());
         let mess = match doc {
-            Ok(_) => "".into(),
-            Err(_) => format!("Couldn't open file: \"{}\"", path.to_string_lossy(),),
+            Ok(_) => HELP_MESSAGE.into(),
+            Err(_) => format!("Couldn't open file: \"{}\"", path.to_string_lossy()),
         };
         Self::common_init(doc.unwrap_or_default(), mess)
     }
@@ -63,6 +65,35 @@ impl Editor {
             }
 
             self.process_keypress()?;
+        }
+    }
+
+    fn save(&mut self, always_ask: bool) {
+        if always_ask || !self.document.has_path() {
+            let path = self
+                .prompt("Save as: ", self.document.get_path_string())
+                .unwrap_or(None);
+
+            match path {
+                None => {
+                    self.status_message = "Save aborted".into();
+                    return;
+                }
+                Some(p) => self.document.set_path(p.into()),
+            }
+        }
+
+        self.status_message = match self.document.save() {
+            Ok(sz) => format!(
+                r#""{}" {}L, {sz}B written"#,
+                self.document.get_path_string().unwrap_or_default(),
+                self.document.len()
+            ),
+            Err(e) => format!(
+                r#""{}" Error writing to file: {}"#,
+                self.document.get_path_string().unwrap_or_default(),
+                e
+            ),
         }
     }
 
@@ -127,6 +158,8 @@ impl Editor {
             None => "[Untitled]".into(),
         };
 
+        let modified = if self.document.is_dirty() { " [+]" } else { "" };
+
         let progression = {
             let cursor_x = self.cursor_position.x;
             let cursor_y = self.cursor_position.y;
@@ -148,13 +181,14 @@ impl Editor {
 
         let width: usize = self.terminal.size().width.into();
 
-        let spaces = " ".repeat(
+        let padding = " ".repeat(
             width
                 .saturating_sub(file_name.len())
+                .saturating_sub(modified.len())
                 .saturating_sub(progression.len()),
         );
 
-        let mut status_line = format!("{file_name}{spaces}{progression}");
+        let mut status_line = format!("{file_name}{modified}{padding}{progression}");
         status_line.truncate(width);
 
         Terminal::set_bg_color(STATUS_BG_COLOR);
@@ -169,7 +203,7 @@ impl Editor {
     }
 
     fn draw_welcome_message(&self, width: usize) {
-        let message = format!("{NAME} text editor version {VERSION} (Ctrl-Q to quit)");
+        let message = format!("{NAME} text editor version {VERSION}");
         let len = std::cmp::min(message.len(), width);
         let padding = width.saturating_sub(len) / 2;
         let spaces = " ".repeat(padding.saturating_sub(1));
@@ -186,10 +220,15 @@ impl Editor {
         #[allow(clippy::single_match)]
         match pressed_key {
             Key::Ctrl('q') => self.should_quit = true,
+            Key::Ctrl('s') => self.save(false),
+            Key::Ctrl('w') => self.save(true),
+            Key::F(1) => self.status_message = HELP_MESSAGE.into(),
+
             Key::Char(c) => {
                 self.document.insert_or_append(self.cursor_position, c);
                 self.move_cursor(Key::Right);
             }
+
             Key::Delete => self.document.delete(self.cursor_position),
             Key::Backspace => {
                 if (self.cursor_position.x > 0) || (self.cursor_position.y > 0) {
@@ -197,6 +236,7 @@ impl Editor {
                     self.document.delete(self.cursor_position);
                 }
             }
+
             Key::Up
             | Key::Down
             | Key::Left
@@ -209,6 +249,38 @@ impl Editor {
         }
 
         Ok(())
+    }
+
+    fn prompt(
+        &mut self,
+        prompt: &str,
+        already_filled: Option<String>,
+    ) -> Result<Option<String>, io::Error> {
+        let mut result = already_filled.unwrap_or_default();
+        loop {
+            self.status_message = format!("{prompt}{result}");
+            self.refresh_screen()?;
+            match Terminal::read_key()? {
+                Key::Char('\n') => break,
+                Key::Char(c) => result.push(c),
+                Key::Backspace => {
+                    if !result.is_empty() {
+                        result.truncate(result.len() - 1);
+                    }
+                }
+                Key::Esc | Key::Ctrl('q') => {
+                    result.truncate(0);
+                    break;
+                }
+                _ => (),
+            }
+        }
+
+        if result.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(result))
+        }
     }
 
     fn move_cursor(&mut self, k: Key) {

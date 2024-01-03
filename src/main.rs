@@ -1,4 +1,3 @@
-#[warn(clippy::pedantic)]
 mod document;
 mod editor;
 mod row;
@@ -11,11 +10,11 @@ pub use row::Row;
 pub use terminal::Terminal;
 
 use anyhow::Result;
-use std::{env, path::Path};
+use std::env;
 
 fn main() -> Result<()> {
     let mut editor = match env::args().nth(1) {
-        Some(p) => Editor::from_file_path(Path::new(&p)),
+        Some(p) => Editor::from_file_path(p.into()),
         None => Editor::default(),
     }?;
 

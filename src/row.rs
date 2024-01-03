@@ -110,6 +110,10 @@ impl Row {
         Self::from(after)
     }
 
+    pub fn as_bytes(&self) -> &[u8] {
+        self.content.as_bytes()
+    }
+
     fn update_grapheme_count(&mut self) {
         self.grapheme_count = self.content.graphemes(true).count()
     }

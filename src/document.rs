@@ -1,19 +1,21 @@
 use crate::{Position, Row};
 use std::fs;
-use std::io::{self, BufRead};
-use std::path::Path;
+use std::io::{self, BufRead, Seek, Write};
+use std::path::PathBuf;
 
 #[derive(Default)]
 pub struct Document {
     rows: Vec<Row>,
-    file_name: Option<String>,
+    path: Option<PathBuf>,
+    /// Whether the document was modified since last save.
+    dirty: bool,
 }
 
 impl Document {
     /// # Errors
-    /// If file can't be open or line can't be read.
-    pub fn open(path: &Path) -> Result<Self, io::Error> {
-        let file = fs::File::open(path)?;
+    /// If file can't be opened or line can't be read.
+    pub fn open(path: PathBuf) -> Result<Self, io::Error> {
+        let file = fs::File::open(&path)?;
         let lines = io::BufReader::new(file)
             .lines()
             .map(|res| Ok(Row::from(res?)))
@@ -21,10 +23,29 @@ impl Document {
 
         Ok(Self {
             rows: lines,
-            file_name: path.file_name().map(|name| name.to_string_lossy().into()),
+            path: Some(path),
+            dirty: false,
         })
     }
 
+    /// Returns number of bytes written to disk.
+    /// # Errors
+    /// If file can'be opened or line can't be written.
+    pub fn save(&mut self) -> Result<u64, io::Error> {
+        let mut bytes_written = 0;
+        if let Some(ref path) = self.path {
+            let mut file = fs::File::create(path)?;
+            for row in &self.rows {
+                file.write_all(row.as_bytes())?;
+                file.write_all(b"\n")?;
+            }
+
+            bytes_written = file.seek(io::SeekFrom::End(0))?;
+        }
+
+        self.dirty = false;
+        Ok(bytes_written)
+    }
     #[must_use]
     pub fn get(&self, index: usize) -> Option<&Row> {
         self.rows.get(index)
@@ -40,11 +61,18 @@ impl Document {
         self.rows.len()
     }
 
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
     pub fn insert_or_append(&mut self, pos: Position, c: char) {
         if c == '\n' {
             self.insert_newline(pos);
             return;
         }
+
+        self.dirty = true;
 
         if pos.y >= self.len() {
             self.rows.push(Row::from(String::from(c)));
@@ -61,9 +89,11 @@ impl Document {
             return;
         }
 
+        self.dirty = true;
+
         if pos.x == self.rows[pos.y].len() && pos.y < len.saturating_sub(1) {
             // If at end of row, but not end of file
-            let next_row = self.rows.remove(pos.y + 1);
+            let next_row = self.rows.remove(pos.y.saturating_add(1));
             self.rows[pos.y].push(next_row);
         } else {
             self.rows[pos.y].delete(pos.x);
@@ -71,12 +101,24 @@ impl Document {
     }
 
     #[must_use]
-    pub fn get_file_name(&self) -> Option<&String> {
-        self.file_name.as_ref()
+    pub fn get_file_name(&self) -> Option<String> {
+        self.path
+            .as_ref()
+            .and_then(|p| p.file_name().map(|name| name.to_string_lossy().into()))
     }
 
-    pub fn set_file_name(&mut self, name: Option<String>) {
-        self.file_name = name;
+    #[must_use]
+    pub fn get_path_string(&self) -> Option<String> {
+        self.path.as_ref().map(|p| p.to_string_lossy().into())
+    }
+
+    #[must_use]
+    pub fn has_path(&self) -> bool {
+        self.path.is_some()
+    }
+
+    pub fn set_path(&mut self, path: PathBuf) {
+        self.path = Some(path);
     }
 
     /// `pos.y == len()` is allowed, noop if `pos.y` > `len()`.
@@ -85,6 +127,8 @@ impl Document {
             return;
         }
 
+        self.dirty = true;
+
         let new_row = Row::default();
 
         if pos.y == self.len() {
@@ -92,6 +136,6 @@ impl Document {
         }
 
         let new_row = self.rows[pos.y].split(pos.x);
-        self.rows.insert(pos.y + 1, new_row);
+        self.rows.insert(pos.y.saturating_add(1), new_row);
     }
 }
