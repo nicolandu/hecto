@@ -1,4 +1,6 @@
-use crate::{Position, Row};
+use regex::Regex;
+
+use crate::{Position, Row, SearchDirection};
 use std::fs;
 use std::io::{self, BufRead, Seek, Write};
 use std::path::PathBuf;
@@ -46,9 +48,50 @@ impl Document {
         self.dirty = false;
         Ok(bytes_written)
     }
+
     #[must_use]
     pub fn get(&self, index: usize) -> Option<&Row> {
         self.rows.get(index)
+    }
+
+    #[must_use]
+    pub fn find(
+        &self,
+        query: &Regex,
+        limit: Position,
+        direction: SearchDirection,
+    ) -> Option<Position> {
+        if limit.y > self.len() {
+            return None;
+        };
+
+        let mut pos = limit;
+
+        let (start, end) = match direction {
+            SearchDirection::Forward => (limit.y, self.len()),
+            SearchDirection::Backward => (0, limit.y + 1),
+        };
+
+        for _ in start..end {
+            let row = self.rows.get(pos.y)?;
+
+            if let Some(x) = row.find(&query, pos.x, direction) {
+                pos.x = x;
+                return Some(pos);
+            }
+            match direction {
+                SearchDirection::Forward => {
+                    pos.y = pos.y.saturating_add(1);
+                    pos.x = 0;
+                }
+                SearchDirection::Backward => {
+                    pos.y = pos.y.saturating_sub(1);
+                    pos.x = self.rows[pos.y].len();
+                }
+            }
+        }
+
+        None
     }
 
     #[must_use]

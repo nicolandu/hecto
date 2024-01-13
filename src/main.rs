@@ -2,12 +2,14 @@ mod document;
 mod editor;
 mod row;
 mod terminal;
+mod truncate_graphemes;
 
 pub use document::Document;
 use editor::Editor;
-pub use editor::Position;
+pub use editor::{Position, SearchDirection};
 pub use row::Row;
 pub use terminal::Terminal;
+pub use truncate_graphemes::TruncateGraphemes;
 
 use anyhow::Result;
 use std::env;

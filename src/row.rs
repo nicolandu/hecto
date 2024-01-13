@@ -1,6 +1,9 @@
+use crate::SearchDirection;
+
 use std::cmp;
 use std::ops::Range;
 
+use regex::Regex;
 use unicode_segmentation::UnicodeSegmentation;
 
 /// A grapheme-based string.
@@ -29,6 +32,7 @@ impl From<&str> for Row {
 }
 
 impl Row {
+    #[must_use]
     pub fn render(&self, range: Range<usize>) -> String {
         let end = cmp::min(range.end, self.content.len());
         let start = cmp::min(range.start, end);
@@ -43,6 +47,42 @@ impl Row {
         }
 
         result
+    }
+
+    #[must_use]
+    pub fn find(&self, query: &Regex, limit: usize, direction: SearchDirection) -> Option<usize> {
+        if limit > self.grapheme_count {
+            return None;
+        }
+
+        let (start, end) = match direction {
+            SearchDirection::Forward => (limit, self.grapheme_count),
+            SearchDirection::Backward => (0, limit),
+        };
+
+        let substring: String = self
+            .content
+            .graphemes(true)
+            .skip(start)
+            .take(end - start)
+            .collect();
+
+        let target_byte_idx = match direction {
+            SearchDirection::Forward => query.find(&substring)?.start(),
+            SearchDirection::Backward => query.find_iter(&substring).last()?.start(),
+        };
+
+        substring
+            .grapheme_indices(true)
+            .enumerate()
+            .find_map(|(i, (byte_idx, _grapheme))| {
+                if byte_idx == target_byte_idx {
+                    // grapheme_idx indexes substring: add substring offset
+                    Some(i + start)
+                } else {
+                    None
+                }
+            })
     }
 
     #[must_use]
